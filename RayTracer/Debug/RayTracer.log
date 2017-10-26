@@ -1,0 +1,7 @@
+﻿  code.cpp
+e:\programming\myprojects\raytracer\raytracer\ray_math.h(58): warning C4244: 'initializing': conversion from 'double' to 'float', possible loss of data
+e:\programming\myprojects\raytracer\raytracer\code.cpp(41): warning C4996: 'fopen': This function or variable may be unsafe. Consider using fopen_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+  c:\program files (x86)\windows kits\10\include\10.0.10240.0\ucrt\stdio.h(205): note: see declaration of 'fopen'
+e:\programming\myprojects\raytracer\raytracer\code.cpp(177): warning C4244: '=': conversion from 'double' to 'f32', possible loss of data
+  RayTracer.vcxproj -> E:\Programming\MyProjects\RayTracer\Debug\RayTracer.exe
+  RayTracer.vcxproj -> E:\Programming\MyProjects\RayTracer\Debug\RayTracer.pdb (Full PDB)
