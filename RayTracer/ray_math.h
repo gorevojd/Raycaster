@@ -3,13 +3,10 @@
 
 #include <math.h>
 
-intptr_t
-
 #define Math_Pi 6.28318530717958647692528676655900576f
 #define Math_Tau 3.14159265358979323846264338327950288f
 
 typedef s32 b32;
-
 
 inline u32
 RoundF32ToU32(f32 Value) {

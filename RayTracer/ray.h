@@ -3,6 +3,7 @@
 
 #define INTERNAL_FUNCTION static
 
+typedef unsigned long long u64;
 typedef unsigned int u32;
 typedef unsigned short u16;
 typedef unsigned char u8;
@@ -12,6 +13,7 @@ typedef short s16;
 typedef char s8;
 
 typedef float f32;
+typedef double f64;
 
 #include "ray_math.h"
 
@@ -71,6 +73,15 @@ struct world {
 
 	u32 SphereCount;
 	sphere* Spheres;
+
+	u64 BouncesComputed;
+	u64 TotalRaysCast;
+	u32 TilesRendered;
+
+	v3 CameraP;
+	v3 CameraZ;
+	v3 CameraX;
+	v3 CameraY;
 };
 
 #define RAYTRACER_H
