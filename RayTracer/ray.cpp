@@ -5,13 +5,14 @@
 
 #include <Windows.h>
 
-/*
-	
-*/
-
 INTERNAL_FUNCTION u32 
 GetTotalPixelSie(image_u32 Image) {
 	u32 Result = Image.Width * Image.Height * sizeof(u32);
+	return(Result);
+}
+
+INTERNAL_FUNCTION u32* GetPixelPointer(image_u32* Image, u32 X, u32 Y) {
+	u32* Result = Image->Pixels + Y * Image->Width + X;
 	return(Result);
 }
 
@@ -85,17 +86,26 @@ ExactlinearToSRGB(f32 L) {
 	return(S);
 }
 
-INTERNAL_FUNCTION u32* GetPixelPointer(image_u32* Image, u32 X, u32 Y) {
-	u32* Result = Image->Pixels + Y * Image->Width + X;
+INTERNAL_FUNCTION u64 LockedAddWithPreviousReturn(u64 volatile* Value, u64 Addend) {
+	u64 Result = InterlockedExchangeAdd64((volatile LONGLONG *)Value, Addend);
 	return(Result);
 }
 
-INTERNAL_FUNCTION void RenderTile(
-	world* World,
-	image_u32* Image,
-	u32 YMin, u32 OnePastYMax,
-	u32 XMin, u32 OnePastXMax) 
+b32 RenderTile(work_queue* Queue)
 {
+	u32 WorkOrderIndex = LockedAddWithPreviousReturn(&Queue->NextWorkOrderIndex, 1);
+	if (WorkOrderIndex >= Queue->WorkOrderCount) {
+		return(false);
+	}
+
+	work_order* Order = Queue->WorkOrders + WorkOrderIndex;
+	world* World = Order->World;
+	image_u32* Image = &Order->Image;
+	u32 XMin = Order->XMin;
+	u32 OnePastXMax = Order->OnePastXMax;
+	u32 YMin = Order->YMin;
+	u32 OnePastYMax = Order->OnePastYMax;
+
 	f32 FilmDist = 1.0f;
 	f32 FilmW = 1.0f;
 	f32 FilmH = 1.0f;
@@ -113,7 +123,7 @@ INTERNAL_FUNCTION void RenderTile(
 	f32 HalfPixW = 0.5f / (f32)Image->Width;
 	f32 HalfPixH = 0.5f / (f32)Image->Height;
 
-	u32 RaysPerPixel = 16;
+	u32 RaysPerPixel = Queue->RaysPerPixel;
 	f32 ContributionValue = 1.0f / (f32)RaysPerPixel;
 	for (u32 VerticalIndex = YMin; VerticalIndex < OnePastYMax; VerticalIndex++) {
 
@@ -143,11 +153,11 @@ INTERNAL_FUNCTION void RenderTile(
 				f32 MinHitDistance = 0.0001f;
 				f32 Tolerance = 0.0001f;
 
-				++World->TotalRaysCast;
+				LockedAddWithPreviousReturn(&Queue->TotalRaysCast, 1);
 
 				v3 Attenuation = V3(1.0f, 1.0f, 1.0f);
 				for (u32 BounceCount = 0;
-					BounceCount < 8;
+					BounceCount < Queue->MaxBounceCount;
 					++BounceCount)
 				{
 					f32 HitDistance = 10000000.0f;
@@ -156,7 +166,7 @@ INTERNAL_FUNCTION void RenderTile(
 
 					v3 NextNormal = {};
 
-					++World->BouncesComputed;
+					LockedAddWithPreviousReturn(&Queue->BouncesComputed, 1);
 
 					for (u32 PlaneIndex = 0;
 						PlaneIndex < World->PlaneCount;
@@ -255,12 +265,38 @@ INTERNAL_FUNCTION void RenderTile(
 		}
 	}
 
-	++World->TilesRendered;
+	LockedAddWithPreviousReturn(&Queue->RenderedTileCount, 1);
+
+	return(true);
+}
+
+INTERNAL_FUNCTION DWORD WINAPI
+WorkerThread(void* Param) {
+	work_queue* Queue = (work_queue*)Param;
+
+	while (RenderTile(Queue)) {}
+
+	return(0);
+}
+
+INTERNAL_FUNCTION u32
+GetCPUCoreCount() {
+	u32 Result = 0;
+
+	SYSTEM_INFO Info;
+	GetSystemInfo(&Info);
+	Result = Info.dwNumberOfProcessors;
+
+	return(Result);
+}
+
+INTERNAL_FUNCTION void CreateWorkThread(void* Param) {
+	DWORD ThreadID;
+	HANDLE ThreadHandle = CreateThread(0, 0, WorkerThread, Param, 0, &ThreadID);
+	CloseHandle(ThreadHandle);
 }
 
 int main(int ArgsCount, char** Args) {
-
-	clock_t BeginClock = clock();
 
 	material Materials[5] = {};
 	Materials[0].EmitColor = V3(0.3f, 0.4f, 0.5f);
@@ -302,16 +338,31 @@ int main(int ArgsCount, char** Args) {
 	World.CameraX = NOZ(Cross(World.CameraZ, V3(0, 0, 1)));
 	World.CameraY = NOZ(Cross(World.CameraX, World.CameraZ));
 
-	image_u32 Image = AllocateImage(640, 480);
+	image_u32 Image = AllocateImage(1366, 768);
 
-	//
-	u32 CoreCount = 4;
+	u32 CoreCount = GetCPUCoreCount();
 	
-	u32 TileYCount = 2;
-	u32 TileXCount = 2;
+	u32 TileWidth = 128;
+	u32 TileHeight = TileWidth;
+	u32 TileYCount = (Image.Height + (TileHeight - 1)) / TileHeight;
+	u32 TileXCount = (Image.Width + (TileWidth - 1)) / TileWidth;
 
-	u32 TileWidth = Image.Width / TileXCount;
-	u32 TileHeight = Image.Height / TileYCount;
+	u32 TotalTileCount = TileYCount * TileXCount;
+
+	work_queue Queue = {};
+	Queue.WorkOrders = (work_order*)malloc(TotalTileCount * sizeof(work_order));
+	Queue.RaysPerPixel = 32;
+	Queue.MaxBounceCount = 8;
+
+	work_order* WorkOrder = Queue.WorkOrders;
+
+	printf("Configuration: %d cores with %d %dx%d (%dk/tile) tiles\n",
+		CoreCount, TotalTileCount, 
+		TileWidth, TileHeight, 
+		TileWidth * TileHeight * 4 / 1024);
+
+	printf("Quality: %d rays/pixel, %d max bounces per ray\n",
+		Queue.RaysPerPixel, Queue.MaxBounceCount);
 
 	for (u32 TileY = 0;
 		TileY < TileYCount;
@@ -339,9 +390,37 @@ int main(int ArgsCount, char** Args) {
 				MaxX = Image.Width;
 			}
 
-			RenderTile(&World, &Image, MinY, MaxY, MinX, MaxX);
+			work_order* Order = Queue.WorkOrders + Queue.WorkOrderCount++;
+			Order->Image = Image;
+			Order->World = &World;
+			Order->XMin = MinX;
+			Order->OnePastXMax = MaxX;
+			Order->YMin = MinY;
+			Order->OnePastYMax = MaxY;
 
-			printf("\r%d tiles rendered", World.TilesRendered);
+		}
+	}
+	Assert(Queue.WorkOrderCount == TotalTileCount);
+
+	LockedAddWithPreviousReturn(&Queue.NextWorkOrderIndex, 0);
+
+
+	clock_t BeginClock = clock();
+
+#if 1
+	for (u32 CoreIndex = 1;
+		CoreIndex < CoreCount;
+		++CoreIndex)
+	{
+		CreateWorkThread(&Queue);
+	}
+#endif
+
+	while (Queue.RenderedTileCount < TotalTileCount) {
+		if (RenderTile(&Queue)) {
+			printf("\r%d tiles rendered", Queue.RenderedTileCount);
+
+			fflush(stdout);
 		}
 	}
 
@@ -354,9 +433,9 @@ int main(int ArgsCount, char** Args) {
 	float TimeElapsed = (float)ClocksElapsed / (float)CLOCKS_PER_SEC;
 	printf("%.2fs elapsed\n", TimeElapsed);
 
-	printf("Total rays casted: %llu\n", World.TotalRaysCast);
-	printf("Bounces computed: %llu\n", World.BouncesComputed);
-	printf("Perfomance: %fms/bounce\n", (f64)TimeElapsed * 1000.0f / (f64)World.BouncesComputed);
+	printf("Total rays casted: %llu\n", Queue.TotalRaysCast);
+	printf("Bounces computed: %llu\n", Queue.BouncesComputed);
+	printf("Perfomance: %fms/bounce\n", (f64)TimeElapsed * 1000.0f / (f64)Queue.BouncesComputed);
 
 	system("pause");
 	return(0);

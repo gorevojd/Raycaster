@@ -462,5 +462,4 @@ inline v4 Linear1ToSRGB255(v4 v) {
 
 	return(Result);
 }
-
 #endif

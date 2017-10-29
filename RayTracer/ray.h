@@ -1,7 +1,7 @@
 #ifndef RAYTRACER_H
 
-
 #define INTERNAL_FUNCTION static
+#define Assert(cond) if(!(cond)){*(int*)0 = 0;}
 
 typedef unsigned long long u64;
 typedef unsigned int u32;
@@ -64,6 +64,7 @@ struct sphere {
 	u32 MatIndex;
 };
 
+
 struct world {
 	u32 MaterialCount;
 	material* Materials;
@@ -74,15 +75,33 @@ struct world {
 	u32 SphereCount;
 	sphere* Spheres;
 
-	u64 BouncesComputed;
-	u64 TotalRaysCast;
-	u32 TilesRendered;
-
 	v3 CameraP;
 	v3 CameraZ;
 	v3 CameraX;
 	v3 CameraY;
 };
+
+struct work_order {
+	world* World;
+	image_u32 Image;
+	u32 XMin;
+	u32 OnePastXMax;
+	u32 YMin;
+	u32 OnePastYMax;
+};
+
+struct work_queue {
+	u32 WorkOrderCount;
+	work_order* WorkOrders;
+
+	u32 RaysPerPixel;
+	u32 MaxBounceCount;
+	volatile u64 NextWorkOrderIndex;
+	volatile u64 BouncesComputed;
+	volatile u64 TotalRaysCast;
+	volatile u64 RenderedTileCount;
+};
+
 
 #define RAYTRACER_H
 #endif
